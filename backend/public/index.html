@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Screen Streaming</title>
+    <style>
+        #localVideo, #remoteVideo {
+            width: 45%;
+            height: auto;
+            margin: 2%;
+        }
+    </style>
+</head>
+<body>
+    <h1>Screen Streaming</h1>
+    <video id="localVideo" autoplay muted></video>
+    <video id="remoteVideo" autoplay></video>
+
+    <script>
+        const localVideo = document.getElementById('localVideo');
+        const remoteVideo = document.getElementById('remoteVideo');
+
+        const peerConnection = new RTCPeerConnection();
+        const ws = new WebSocket('ws://localhost:3000');
+
+        ws.onmessage = (message) => {
+            const data = JSON.parse(message.data);
+            if (data.offer) {
+                handleOffer(data.offer);
+            } else if (data.answer) {
+                handleAnswer(data.answer);
+            } else if (data.ice) {
+                handleIce(data.ice);
+            }
+        };
+
+        peerConnection.ontrack = (event) => {
+            remoteVideo.srcObject = event.streams[0];
+        };
+
+        peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+                ws.send(JSON.stringify({ ice: event.candidate }));
+            }
+        };
+
+        navigator.mediaDevices.getDisplayMedia({ video: true })
+            .then((stream) => {
+                localVideo.srcObject = stream;
+                stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
+                return peerConnection.createOffer();
+            })
+            .then((offer) => peerConnection.setLocalDescription(offer))
+            .then(() => ws.send(JSON.stringify({ offer: peerConnection.localDescription })))
+            .catch(error => console.error('Error getting screen stream:', error));
+
+        function handleOffer(offer) {
+            peerConnection.setRemoteDescription(new RTCSessionDescription(offer))
+                .then(() => peerConnection.createAnswer())
+                .then((answer) => peerConnection.setLocalDescription(answer))
+                .then(() => ws.send(JSON.stringify({ answer: peerConnection.localDescription })));
+        }
+
+        function handleAnswer(answer) {
+            peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+        }
+
+        function handleIce(ice) {
+            peerConnection.addIceCandidate(new RTCIceCandidate(ice));
+        }
+    </script>
+</body>
+</html>
